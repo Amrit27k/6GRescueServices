@@ -1,0 +1,153 @@
+---
+- name: Check if repository already cloned
+  stat:
+    path: "{{ rescue_app.build_directory }}/.git"
+  register: repo_exists
+
+- name: Clone 6G-RESCUE repository
+  git:
+    repo: "{{ rescue_app.git_repo }}"
+    dest: "{{ rescue_app.build_directory }}"
+    version: "{{ rescue_app.branch }}"
+    force: yes
+  become_user: "{{ ansible_user }}"
+  register: git_clone
+
+- name: Display clone status
+  debug:
+    msg: "Repository cloned to {{ rescue_app.build_directory }}"
+  when: git_clone is changed
+
+- name: Copy backend source to deployment directory
+  synchronize:
+    src: "{{ rescue_app.build_directory }}/edge-ml-backend/"
+    dest: "{{ backend.directory }}/"
+    delete: yes
+    recursive: yes
+  delegate_to: "{{ inventory_hostname }}"
+
+- name: Set ownership of backend directory
+  file:
+    path: "{{ backend.directory }}"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    recurse: yes
+
+- name: Check if requirements.txt exists
+  stat:
+    path: "{{ backend.directory }}/requirements.txt"
+  register: requirements_file
+
+- name: Display requirements file status
+  debug:
+    msg: "Requirements file found: {{ requirements_file.stat.exists }}"
+
+- name: Create Python virtual environment
+  pip:
+    name: pip
+    virtualenv: "{{ backend.directory }}/venv"
+    virtualenv_python: python3
+  become_user: "{{ ansible_user }}"
+
+- name: Upgrade pip in virtual environment
+  pip:
+    name: pip
+    state: latest
+    virtualenv: "{{ backend.directory }}/venv"
+  become_user: "{{ ansible_user }}"
+
+- name: Install Python requirements
+  pip:
+    requirements: "{{ backend.directory }}/requirements.txt"
+    virtualenv: "{{ backend.directory }}/venv"
+  become_user: "{{ ansible_user }}"
+  when: requirements_file.stat.exists
+
+- name: Install backend package in development mode
+  pip:
+    name: "{{ backend.directory }}"
+    virtualenv: "{{ backend.directory }}/venv"
+    editable: yes
+  become_user: "{{ ansible_user }}"
+  ignore_errors: true  # In case setup.py doesn't exist
+
+- name: Create backend environment file
+  template:
+    src: backend.env.j2
+    dest: "{{ backend.directory }}/.env"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+
+- name: Create backend startup script
+  template:
+    src: start-backend.sh.j2
+    dest: "{{ backend.directory }}/start-backend.sh"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+
+- name: Check if startup script was created
+  stat:
+    path: "{{ backend.directory }}/start-backend.sh"
+  register: startup_script_check
+
+- name: Display startup script test
+  debug:
+    msg: "Startup script test: {{ startup_script_check.stat.exists }}"
+
+- name: Check if backend is already running
+  shell: "pgrep -f 'uvicorn main:app' || echo 'not running'"
+  register: backend_process
+  ignore_errors: true
+
+- name: Stop existing backend process if running
+  shell: "pkill -f 'uvicorn main:app' 2>/dev/null || echo 'No process to kill'"
+  ignore_errors: true
+
+- name: Start backend in background
+  shell: |
+    cd {{ backend.directory }}
+    source venv/bin/activate
+    nohup {{ backend.directory }}/venv/bin/uvicorn main:app --host {{ backend.host }} --port {{ backend.port }} --reload --log-level info > /var/log/rescue/backend.log 2>&1 &
+    echo $! > {{ backend.directory }}/backend.pid
+  become_user: "{{ ansible_user }}"
+  async: 10
+  poll: 0
+
+- name: Wait a moment for backend to start
+  wait_for:
+    timeout: 5
+
+- name: Check if backend process is running
+  shell: "ps aux | grep '[u]vicorn main:app' | wc -l"
+  register: backend_running
+
+- name: Display backend status
+  debug:
+    msg: "Backend processes running: {{ backend_running.stdout }}"
+
+- name: Wait for backend to be ready
+  uri:
+    url: "http://localhost:8080/"
+    method: GET
+    status_code: 200
+  retries: 10
+  delay: 2
+  delegate_to: localhost
+  become: false
+
+- name: Display deployment success
+  debug:
+    msg: |
+      6G-RESCUE Backend Deployment SUCCESSFUL!
+
+      Service Status: ✅ RUNNING
+      API Documentation: http://localhost:8080/docs
+      API Base URL: http://localhost:8080/
+
+      Test the Backend API:
+      curl http://localhost:8080/
+      curl http://localhost:8080/docs
+
+      View logs: sudo docker exec rescue-test-target cat /var/log/rescue/backend.log

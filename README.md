@@ -74,17 +74,6 @@ sudo add-apt-repository --yes --update ppa:ansible/ansible
 sudo apt install -y ansible
 ```
 
-#### CentOS/RHEL/Fedora
-```bash
-sudo dnf install -y epel-release
-sudo dnf install -y ansible
-```
-
-#### macOS
-```bash
-brew install ansible
-```
-
 #### Using pip (Universal)
 ```bash
 python3 -m venv ansible-env
@@ -99,30 +88,17 @@ ansible-galaxy collection install community.general
 ansible-galaxy collection install ansible.posix
 ```
 
-### 3. Create Project Directory
+### 3. Clone Project Directory
 ```bash
-mkdir -p ~/ansible-rescue-deployment
-cd ~/ansible-rescue-deployment
-
-# Create directory structure
-mkdir -p inventories playbooks group_vars
-mkdir -p roles/{system-prep,rescue-backend}/{tasks,templates,handlers}
+git clone https://github.com/Amrit27k/6GRescueServices.git
 ```
 
 ## Container Testing Environment
 
 For safe testing without affecting production servers, use Docker containers:
 
-### 1. Create Test Container Script
+### 1. Create Test Container
 ```bash
-cat > create-test-container.sh << 'EOF'
-#!/bin/bash
-
-echo "🧹 Cleaning up existing container..."
-docker stop rescue-test-target 2>/dev/null || true
-docker rm rescue-test-target 2>/dev/null || true
-
-echo "🐳 Creating new test container..."
 docker run -d \
   --name rescue-test-target \
   --privileged \
@@ -144,170 +120,21 @@ docker run -d \
     /usr/sbin/sshd -D
   "
 
-echo "⏳ Waiting for container to be ready..."
-sleep 15
-
-echo "🔑 Setting up SSH keys..."
-if [ ! -f ~/.ssh/ansible_test_key ]; then
-    ssh-keygen -t rsa -f ~/.ssh/ansible_test_key -N ""
-fi
-
+ssh-keygen -t rsa -f ~/.ssh/ansible_test_key -N ""
+docker exec rescue-test-target mkdir -p /home/ubuntu/.ssh
 docker cp ~/.ssh/ansible_test_key.pub rescue-test-target:/tmp/key.pub
 docker exec rescue-test-target bash -c "
     cat /tmp/key.pub >> /home/ubuntu/.ssh/authorized_keys && 
-    chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys &&
+    chown -R ubuntu:ubuntu /home/ubuntu/.ssh &&
     chmod 600 /home/ubuntu/.ssh/authorized_keys &&
+    chmod 700 /home/ubuntu/.ssh &&
     rm /tmp/key.pub
 "
-
-echo "✅ Testing SSH connection..."
-if ssh -i ~/.ssh/ansible_test_key -p 2222 -o StrictHostKeyChecking=no ubuntu@localhost whoami > /dev/null 2>&1; then
-    echo "🎉 Container setup successful!"
-    echo "🚀 You can now run the deployment!"
-else
-    echo "❌ SSH connection failed. Check container logs:"
-    docker logs rescue-test-target
-fi
-EOF
-
-chmod +x create-test-container.sh
-./create-test-container.sh
 ```
-
-## Configuration
-
-### 1. Ansible Configuration (`ansible.cfg`)
-```ini
-[defaults]
-host_key_checking = False
-inventory = inventories/inventory.yml
-remote_tmp = /tmp/.ansible-${USER}
-stdout_callback = yaml
-callback_whitelist = timer, profile_tasks
-
-[ssh_connection]
-ssh_args = -o ControlMaster=auto -o ControlPersist=60s -o StrictHostKeyChecking=no
-pipelining = True
+Testing SSH connection...
+```bash
+ssh -i ~/.ssh/ansible_test_key -p 2222 ubuntu@localhost sudo whoami
 ```
-
-### 2. Inventory Configuration (`inventories/inventory.yml`)
-
-#### For Container Testing:
-```yaml
-all:
-  hosts:
-    edge-server:
-      ansible_host: localhost
-      ansible_port: 2222
-      ansible_user: ubuntu
-      ansible_ssh_private_key_file: ~/.ssh/ansible_test_key
-  vars:
-    ansible_python_interpreter: /usr/bin/python3
-```
-
-#### For Real Servers:
-```yaml
-all:
-  hosts:
-    edge-server:
-      ansible_host: 10.70.0.64  # Your server IP
-      ansible_user: ubuntu      # Your SSH user
-      ansible_ssh_private_key_file: ~/.ssh/id_rsa
-  vars:
-    ansible_python_interpreter: /usr/bin/python3
-```
-
-### 3. Global Variables (`group_vars/all.yml`)
-```yaml
----
-# 6G-RESCUE Application Configuration
-rescue_app:
-  git_repo: "https://github.com/Amrit27k/6GRescueApplication.git"
-  branch: "main"
-  build_directory: "/tmp/rescue-build"
-
-# Backend Configuration (FastAPI)
-backend:
-  host: "0.0.0.0"              # For containers, use 0.0.0.0
-  port: 8080
-  directory: "/opt/rescue-backend"
-  python_version: "3.10"
-
-# Backend Environment Variables
-backend_env:
-  jupyterhub_url: "http://localhost"
-  jupyterhub_user: "akumar"
-  jupyterhub_token: "test_token"
-  jetson_ip: "192.168.2.100"
-  mqtt_broker: "127.0.0.1"
-  mqtt_port: 1883
-
-# System Configuration
-system_packages:
-  - python3
-  - python3-pip
-  - python3-venv
-  - nodejs
-  - npm
-  - git
-  - curl
-  - wget
-  - htop
-  - ufw
-  - rsync
-```
-
-### 4. Main Playbook (`playbooks/deploy-backend.yml`)
-```yaml
----
-- name: Deploy 6G-RESCUE Backend Only
-  hosts: all
-  become: yes
-  gather_facts: yes
-  
-  tasks:
-    - name: Print deployment info
-      debug:
-        msg: |
-          Deploying 6G-RESCUE Backend to: {{ ansible_host }}
-          Backend will run on: http://{{ backend.host }}:{{ backend.port }}
-  
-  roles:
-    - system-prep
-    - rescue-backend
-    
-  post_tasks:
-    - name: Wait for backend to be ready
-      uri:
-        url: "http://localhost:8080/"
-        method: GET
-        status_code: 200
-      retries: 10
-      delay: 2
-      delegate_to: localhost
-      become: no
-      
-    - name: Display success message
-      debug:
-        msg: |
-          🎉 Backend deployment complete!
-          
-          🌐 Access your backend:
-          - API Documentation: http://localhost:8080/docs
-          - API Base URL: http://localhost:8080/
-          
-          🔍 Check status:
-          - Service status: docker exec rescue-test-target ps aux | grep uvicorn
-          - View logs: docker exec rescue-test-target cat /var/log/rescue/backend.log
-```
-
-### 5. Create Role Files
-
-Copy the complete role files from the previous guides:
-- `roles/system-prep/tasks/main.yml` - System preparation
-- `roles/rescue-backend/tasks/main.yml` - Backend deployment
-- `roles/rescue-backend/templates/` - Configuration templates
-- `roles/rescue-backend/handlers/main.yml` - Event handlers
 
 ## Deployment
 
