@@ -88,7 +88,7 @@ ansible-galaxy collection install community.general
 ansible-galaxy collection install ansible.posix
 ```
 
-### 3. Clone Project Directory
+### 3. Clone the Services Repository
 ```bash
 git clone https://github.com/Amrit27k/6GRescueServices.git
 ```
@@ -315,6 +315,6 @@ For issues or questions:
 
 ---
 
-**Project**: 6G-RESCUE Edge ML Operations System   
-**Last Updated**: August 2025  
+**Project**: 6G-RESCUE Edge ML Services
+**Last Updated**: August 2025
 **Version**: 1.0.0
