@@ -1,0 +1,35 @@
+---
+- name: Update package cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install system packages
+  apt:
+    name: "{{ system_packages }}"
+    state: present
+
+- name: Create application directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  loop:
+    - "{{ backend.directory }}"
+    - "{{ rescue_app.build_directory }}"
+    - "/var/log/rescue"
+
+- name: Configure firewall for backend
+  ufw:
+    rule: allow
+    port: "{{ backend.port }}"
+    proto: tcp
+    comment: "6G-RESCUE Backend API"
+
+- name: Enable firewall
+  ufw:
+    state: enabled
+    policy: deny
+    direction: incoming

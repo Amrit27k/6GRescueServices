@@ -1,0 +1,26 @@
+[Unit]
+Description=6G-RESCUE FastAPI Backend
+After=network.target
+Wants=network.target
+
+[Service]
+Type=exec
+User={{ ansible_user }}
+Group={{ ansible_user }}
+WorkingDirectory={{ backend.directory }}
+Environment=PATH={{ backend.directory }}/venv/bin
+ExecStart={{ backend.directory }}/start-backend.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ backend.directory }} /var/log/rescue
+
+[Install]
+WantedBy=multi-user.target

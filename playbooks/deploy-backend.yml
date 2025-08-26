@@ -1,0 +1,38 @@
+- name: Deploy 6G-RESCUE Backend Only
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Print deployment info
+      debug:
+        msg: |
+          Deploying 6G-RESCUE Backend to: {{ ansible_host }}
+          Backend will run on: http://{{ backend.host }}:{{ backend.port }}
+
+  roles:
+    - system-prep
+    - rescue-backend
+
+  post_tasks:
+    - name: Wait for backend to start
+      uri:
+        url: "http://{{ backend.host }}:{{ backend.port }}/docs"
+        method: GET
+        status_code: 200
+      retries: 10
+      delay: 5
+      delegate_to: localhost
+
+    - name: Display success message
+      debug:
+        msg: |
+          Backend deployment complete!
+
+          Access your backend:
+          - API Documentation: http://{{ backend.host }}:{{ backend.port }}/docs
+          - API Base URL: http://{{ backend.host }}:{{ backend.port }}/api
+
+          Check status:
+          - Service status: sudo systemctl status rescue-backend
+          - View logs: sudo journalctl -u rescue-backend -f
