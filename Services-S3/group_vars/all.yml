@@ -18,6 +18,20 @@ backend_env:
   mqtt_broker: "127.0.0.1"
   mqtt_port: 1883
 
+frontend:
+  host: "0.0.0.0"
+  port: 3000
+  directory: "/opt/rescue-frontend"
+  node_version: "18"
+
+# Frontend Environment Variables
+frontend_env:
+  environment: "production"
+  mqtt_broker: "127.0.0.1"
+  mqtt_port: 9001
+  generate_sourcemap: false
+  disable_eslint: true
+
 # System Configuration
 system_packages:
   - python3
@@ -32,3 +46,7 @@ system_packages:
   - ufw
   - rsync
   - virtualenv
+  - build-essential
+  - net-tools
+  - procps
+  - psmisc

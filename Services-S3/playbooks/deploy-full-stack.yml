@@ -1,0 +1,89 @@
+---
+# playbooks/deploy-full-stack.yml (Fixed)
+- name: Deploy 6G-RESCUE Full Stack Application
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  pre_tasks:
+    - name: Display target host information
+      debug:
+        msg: |
+          Deploying to: {{ inventory_hostname }}
+          Backend will run on: {{ backend.host }}:{{ backend.port }}
+          Frontend will run on: {{ frontend.host }}:{{ frontend.port }}
+
+    - name: Verify connectivity to target
+      ping:
+
+  roles:
+    - role: system-prep
+      tags: ['system', 'prep']
+
+    - role: rescue-backend
+      tags: ['backend', 'api']
+
+    - role: rescue-frontend
+      tags: ['frontend', 'ui']
+
+  post_tasks:
+    - name: Get server IP address
+      set_fact:
+        server_ip: "{{ ansible_default_ipv4.address | default(ansible_all_ipv4_addresses[0]) | default('localhost') }}"
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          ================================
+          6G-RESCUE Deployment Complete!
+          ================================
+
+          Backend API:      http://{{ server_ip }}:{{ backend.port }}
+          API Docs:         http://{{ server_ip }}:{{ backend.port }}/docs
+          Frontend UI:      http://{{ server_ip }}:{{ frontend.port }}
+
+          Container Access: http://localhost:{{ backend.port }} (backend)
+                           http://localhost:{{ frontend.port }} (frontend)
+
+          Log Files:
+          - Backend:        /var/log/rescue/backend.log
+          - Frontend:       /var/log/rescue/frontend.log
+
+          Service Management:
+          - Backend:        systemctl status rescue-backend
+          - Frontend:       Check processes with: ps aux | grep -E "(npm|node)"
+
+          Configuration:
+          - Backend:        {{ backend.directory }}/.env
+          - Frontend:       {{ frontend.directory }}/.env
+
+    - name: Test backend service
+      uri:
+        url: "http://localhost:{{ backend.port }}/docs"
+        method: GET
+        status_code: [200, 404]
+      register: backend_check
+      ignore_errors: true
+
+    - name: Test frontend service
+      uri:
+        url: "http://localhost:{{ frontend.port }}/"
+        method: GET
+        status_code: [200, 404]
+      register: frontend_check
+      ignore_errors: true
+
+    - name: Display service status
+      debug:
+        msg: |
+          Service Health Check:
+          Backend ({{ backend.port }}): {{ 'OK' if backend_check.status == 200 else 'Failed' }}
+          Frontend ({{ frontend.port }}): {{ 'OK' if frontend_check.status == 200 else 'Failed' }}
+
+          If services are not responding, check:
+          1. Processes: ps aux | grep -E "(uvicorn|npm|node)"
+          2. Ports: netstat -tlnp | grep -E "({{ backend.port }}|{{ frontend.port }})"
+          3. Logs: tail -f /var/log/rescue/*.log
