@@ -1,0 +1,40 @@
+set -e
+cd {{ frontend.directory }}
+
+echo "=== 6G-RESCUE Frontend Startup ==="
+echo "Directory: $(pwd)"
+echo "Node version: $(node --version 2>/dev/null || nodejs --version 2>/dev/null || echo 'unknown')"
+echo "NPM version: $(npm --version 2>/dev/null || echo 'unknown')"
+echo "Port: {{ frontend.port }}"
+
+# Set environment variables
+export PORT={{ frontend.port }}
+export REACT_APP_API_BASE=http://{{ backend.host }}:{{ backend.port }}
+export REACT_APP_BACKEND_HOST={{ backend.host }}
+export REACT_APP_BACKEND_PORT={{ backend.port }}
+
+{% if frontend_env.environment == "production" %}
+# Production mode - try to build if not built, then serve
+echo "Production mode selected"
+
+if [ ! -d "build" ]; then
+    echo "Build directory not found, running npm run build..."
+    npm run build || {
+        echo "Build failed, falling back to development mode"
+        export NODE_ENV=development
+        exec npm start
+    }
+fi
+
+echo "Serving production build..."
+# Use Python3 HTTP server (most reliable)
+cd build
+echo "Starting Python HTTP server on port {{ frontend.port }}"
+exec python3 -m http.server {{ frontend.port }}
+
+{% else %}
+# Development mode
+echo "Development mode - starting npm start"
+export NODE_ENV=development
+exec npm start
+{% endif %}

@@ -1,0 +1,6 @@
+[submodule "Services-S4/FogMLaaS"]
+	path = Services-S4/FogMLaaS
+	url = https://github.com/tszydlo/FogMLaaS.git
+[submodule "Services-S1/6GRescueApplication"]
+	path = Services-S1/6GRescueApplication
+	url = https://github.com/Amrit27k/6GRescueApplication

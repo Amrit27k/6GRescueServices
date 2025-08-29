@@ -1,0 +1,123 @@
+- name: Check existing Node.js installation
+  shell: |
+    echo "=== Node.js Check ==="
+    which node || which nodejs || echo "No node found"
+    which npm || echo "No npm found"
+    (node --version || nodejs --version) 2>/dev/null || echo "No version available"
+    npm --version 2>/dev/null || echo "No npm version available"
+  register: node_check
+  changed_when: false
+
+- name: Display current Node.js status
+  debug:
+    msg: "{{ node_check.stdout_lines }}"
+
+- name: Install npm if missing
+  apt:
+    name: npm
+    state: present
+    update_cache: yes
+  become: true
+  when: "'No npm found' in node_check.stdout"
+
+- name: Create node symlink if only nodejs exists
+  file:
+    src: /usr/bin/nodejs
+    dest: /usr/bin/node
+    state: link
+  become: true
+  when: "'No node found' in node_check.stdout and 'nodejs' in node_check.stdout"
+
+- name: Clone 6G-RESCUE repository for frontend
+  git:
+    repo: "{{ rescue_app.git_repo }}"
+    dest: "{{ rescue_app.build_directory }}"
+    version: "{{ rescue_app.branch }}"
+    force: yes
+  become: false
+
+- name: Copy frontend source to deployment directory
+  synchronize:
+    src: "{{ rescue_app.build_directory }}/edge-ml-frontend/"
+    dest: "{{ frontend.directory }}/"
+    delete: yes
+    rsync_opts:
+      - "--exclude=node_modules"
+      - "--exclude=build"
+      - "--exclude=.git"
+  delegate_to: "{{ inventory_hostname }}"
+  become: false
+
+- name: Create frontend environment file
+  template:
+    src: frontend.env.j2
+    dest: "{{ frontend.directory }}/.env"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+
+- name: Set ownership of frontend directory
+  file:
+    path: "{{ frontend.directory }}"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    recurse: yes
+  become: true
+
+- name: Install frontend dependencies
+  shell: |
+    cd {{ frontend.directory }}
+    echo "Installing dependencies with existing Node.js/npm..."
+    npm install --legacy-peer-deps --no-audit --no-fund
+  become: false
+  register: npm_install
+  retries: 2
+  delay: 5
+  until: npm_install.rc == 0
+  ignore_errors: true
+
+- name: Display npm install results
+  debug:
+    msg: "{{ npm_install.stdout_lines | default(['No npm output']) }}"
+
+- name: Create simple frontend startup script
+  template:
+    src: simple-frontend-start.sh.j2
+    dest: "{{ frontend.directory }}/start-frontend.sh"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+
+- name: Stop any existing frontend processes
+  shell: |
+    pkill -f "npm.*start\|node.*3000\|python.*3000" || true
+    sleep 2
+  ignore_errors: true
+
+- name: Start frontend in background
+  shell: |
+    cd {{ frontend.directory }}
+    nohup ./start-frontend.sh > /var/log/rescue/frontend.log 2>&1 &
+    sleep 3
+  become: false
+
+- name: Wait for frontend to start and check status
+  shell: |
+    sleep 5
+    if netstat -tlnp | grep {{ frontend.port }} > /dev/null 2>&1; then
+      echo "✅ Frontend is running on port {{ frontend.port }}"
+      echo "Process info:"
+      ps aux | grep -E "(npm|node)" | grep -v grep | head -3
+    else
+      echo "❌ Frontend not running on port {{ frontend.port }}"
+      echo "Recent logs:"
+      tail -20 /var/log/rescue/frontend.log 2>/dev/null || echo "No log file found"
+      echo "Processes:"
+      ps aux | grep -E "(npm|node)" | grep -v grep || echo "No node/npm processes"
+    fi
+  register: frontend_status
+  ignore_errors: true
+
+- name: Display frontend status
+  debug:
+    msg: "{{ frontend_status.stdout_lines }}"

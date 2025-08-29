@@ -1,0 +1,28 @@
+#!/bin/bash
+# 6G-RESCUE Frontend Startup Script for Container
+
+set -e
+
+echo "Starting 6G-RESCUE Frontend..."
+cd {{ frontend.directory }}
+
+export PORT={{ frontend.port }}
+
+{% if frontend_env.environment == "production" %}
+# Production mode - serve built files
+if [ ! -d "build" ]; then
+    echo "Build directory not found. Running npm run build..."
+    npm run build
+fi
+
+echo "Starting production server with serve..."
+echo "Frontend will be available at: http://localhost:{{ frontend.port }}"
+exec serve -s build -l {{ frontend.port }}
+
+{% else %}
+# Development mode
+echo "Starting development server..."
+echo "Frontend will be available at: http://localhost:{{ frontend.port }}"
+exec npm start
+
+{% endif %}

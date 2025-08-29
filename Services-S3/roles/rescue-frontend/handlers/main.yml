@@ -1,0 +1,7 @@
+- name: restart frontend
+  shell: |
+    pkill -f "npm.*start\|node.*3000\|python.*3000" || true
+    sleep 2
+    cd {{ frontend.directory }}
+    nohup ./start-frontend.sh > /var/log/rescue/frontend.log 2>&1 &
+  become: false

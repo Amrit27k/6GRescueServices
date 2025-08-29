@@ -1,0 +1,81 @@
+#!/bin/bash
+# Frontend Service Script for Container Environment
+
+LOG_FILE="/var/log/rescue/frontend.log"
+PID_FILE="/var/run/frontend.pid"
+
+# Ensure log directory exists
+mkdir -p /var/log/rescue
+
+# Function to start frontend
+start_frontend() {
+    echo "$(date): Starting frontend service..." >> "$LOG_FILE"
+    cd {{ frontend.directory }}
+
+    # Kill any existing processes
+    if [ -f "$PID_FILE" ]; then
+        OLD_PID=$(cat "$PID_FILE")
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "$(date): Killing existing process $OLD_PID" >> "$LOG_FILE"
+            kill "$OLD_PID" || true
+            sleep 2
+        fi
+        rm -f "$PID_FILE"
+    fi
+
+    # Start the frontend
+    {{ frontend.directory }}/start-frontend.sh &
+    NEW_PID=$!
+    echo "$NEW_PID" > "$PID_FILE"
+    echo "$(date): Frontend started with PID $NEW_PID" >> "$LOG_FILE"
+}
+
+# Function to stop frontend
+stop_frontend() {
+    if [ -f "$PID_FILE" ]; then
+        PID=$(cat "$PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "$(date): Stopping frontend service (PID: $PID)..." >> "$LOG_FILE"
+            kill "$PID"
+            rm -f "$PID_FILE"
+        fi
+    fi
+}
+
+# Function to restart frontend
+restart_frontend() {
+    stop_frontend
+    sleep 2
+    start_frontend
+}
+
+# Handle script arguments
+case "${1:-start}" in
+    start)
+        start_frontend
+        ;;
+    stop)
+        stop_frontend
+        ;;
+    restart)
+        restart_frontend
+        ;;
+    status)
+        if [ -f "$PID_FILE" ]; then
+            PID=$(cat "$PID_FILE")
+            if kill -0 "$PID" 2>/dev/null; then
+                echo "Frontend is running (PID: $PID)"
+                netstat -tlnp | grep {{ frontend.port }}
+            else
+                echo "Frontend is not running (stale PID file)"
+                rm -f "$PID_FILE"
+            fi
+        else
+            echo "Frontend is not running"
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}"
+        exit 1
+        ;;
+esac
